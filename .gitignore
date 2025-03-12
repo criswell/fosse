@@ -1,0 +1,24 @@
+*.pyc
+*.pyo
+*.tar.gz
+*.egg-info/
+build/
+.idea
+*.swp
+*.swo
+*.zwc
+*.log
+*~
+.cache
+.pytest_cache
+.eggs
+**/**/.DS_Store
+.env
+dist/
+.vscode/
+.envrc
+Session.vim
+fosse-config.yml
+
+# Files to include regardless of exclusion rules
+!**/.gitkeep
