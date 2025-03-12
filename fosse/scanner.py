@@ -15,8 +15,7 @@ class Scanner:
 
     def handle_fosse_yml(self, dirpath):
         """
-        Handles the .fosse.yml file in the directory. This function is a placeholder
-        and should be implemented based on the specific requirements of your application.
+        Handles the .fosse.yml file in the directory.
 
         Args:
             dirpath (str): The path of the directory being scanned.
@@ -27,6 +26,16 @@ class Scanner:
         logger.debug(f"Found Notebook: {notebook.name()}")
         self.db.insert_notebook(dirpath, notebook)
 
+    def handle_video_file(self, dirpath, filename):
+        """
+        Handles a video file in the directory.
+
+        Args:
+            dirpath (str): The path of the directory containing the video file.
+            filename (str): The name of the video file.
+        """
+        pass
+
     def scan(self):
         """
         Scans the directory specified in the config for video files. Populates
@@ -35,6 +44,8 @@ class Scanner:
         Returns:
             bool: True if the scan was successful, False otherwise.
         """
+        self.db.begin_of_scan()
+
         # Initialize mimetypes
         mimetypes.init()
 
@@ -61,10 +72,11 @@ class Scanner:
         for dirpath, dirnames, filenames in os.walk(root):
             logger.debug(f"Scanning {dirpath}...")
             if fosse_file in filenames:
-                self.handle_fosse_yml(dirpath, dirnames)
+                self.handle_fosse_yml(dirpath)
             for filename in filenames:
-                # Check if file has a video extension
-                # if filename.lower().endswith(video_extensions):
+                Check if file has a video extension
+                if filename.lower().endswith(video_extensions):
+                    self.handle_video_file(dirpath, filename)
                 #    print(f"{dirpath} : {filename}")
                 #    if dirpath not in video_files.keys():
                 #        video_files[dirpath] = []
