@@ -1,6 +1,8 @@
 import os
 import datetime
 import mimetypes
+import pickle
+import json
 from pathlib import Path
 from loguru import logger
 
@@ -15,7 +17,7 @@ class Scanner:
 
     def handle_fosse_yml(self, dirpath):
         """
-        Handles the .fosse.yml file in the directory.
+        Handles the fosse.yml file in the directory.
 
         Args:
             dirpath (str): The path of the directory being scanned.
@@ -54,7 +56,96 @@ class Scanner:
             dirpath (str): The path of the directory containing the video file.
             filename (str): The name of the video file.
         """
-        pass
+        file_path = os.path.join(dirpath, filename)
+        full_path = os.path.abspath(file_path)
+
+        # Check if file exists in database and if it's been modified
+        cursor = self.db._con.cursor()
+        cursor.execute(
+            "SELECT id, last_modified FROM videos WHERE file_path = ?",
+            (full_path,)
+        )
+        result = cursor.fetchone()
+
+        file_stat = os.stat(full_path)
+        file_mtime = datetime.datetime.fromtimestamp(file_stat.st_mtime)
+
+        # Mark this file as existing for end-of-scan cleanup
+        cursor.execute(
+            "INSERT OR IGNORE INTO temp_existing_files (path) VALUES (?)",
+            (full_path,)
+        )
+
+        # If file doesn't exist in DB or has been modified, process it
+        if not result or (result and file_mtime > datetime.datetime.fromisoformat(result[1])):
+            logger.info(f"Processing video file: {full_path}")
+
+            # Get video metadata
+            metadata = self.extract_video_metadata(full_path)
+
+            # Get combined configuration for this file
+            config_data = self.db.get_combined_config_for_file(full_path)
+
+            # Extract recording date from filename if possible
+            recording_date = self.extract_recording_date(filename, dirpath)
+
+            # Combine all metadata
+            combined_metadata = {
+                'file_path': full_path,
+                'file_size_bytes': file_stat.st_size,
+                'recording_date': recording_date,
+                **metadata,
+                **config_data
+            }
+
+            # Insert or update the video in the database
+            self.db.insert_video(full_path, combined_metadata)
+
+            logger.debug(f"Added/updated video: {filename}")
+
+    def extract_video_metadata(self, file_path):
+        """
+        Extracts metadata from a video file.
+
+        Args:
+            file_path (str): Path to the video file.
+
+        Returns:
+            dict: Metadata extracted from the video file.
+        """
+        # TODO: Implement video metadata extraction
+        # This would use a library like ffmpeg-python, moviepy, or opencv
+        # to extract information like duration, resolution, codec, etc.
+
+        # For now, return placeholder metadata
+        return {
+            'duration_seconds': 0,
+            'width': 0,
+            'height': 0,
+            'video_format': 'unknown',
+            'codec': 'unknown',
+            'frame_rate': 0.0,
+        }
+
+    def extract_recording_date(self, filename, dirpath):
+        """
+        Attempts to extract recording date from filename using notebook decoding rules.
+
+        Args:
+            filename (str): The video filename.
+            dirpath (str): The directory path containing the video.
+
+        Returns:
+            str: ISO formatted date string or None if not extractable.
+        """
+        # Get applicable notebook for this directory
+        config = self.db.get_combined_config_for_file(os.path.join(dirpath, filename))
+
+        # TODO: Implement date extraction from filename using notebook decoding rules
+        # This would use the regexp and group information from the notebook
+
+        # For now, return None
+        return None
 
     def scan(self):
         """
@@ -64,6 +155,7 @@ class Scanner:
         Returns:
             bool: True if the scan was successful, False otherwise.
         """
+        logger.info("Starting scan...")
         self.db.begin_of_scan()
 
         # Initialize mimetypes
@@ -86,34 +178,22 @@ class Scanner:
             )
             return False
 
-        video_files = {}
-
         # Walk through all directories and files
         for dirpath, dirnames, filenames in os.walk(root):
             logger.debug(f"Scanning {dirpath}...")
+
+            # Handle fosse.yml file if it exists
             if fosse_file in filenames:
                 self.handle_fosse_yml(dirpath)
+
+            # Handle video files
             for filename in filenames:
                 # Check if file has a video extension
-                if filename.lower().endswith(video_extensions):
+                if any(filename.lower().endswith(ext) for ext in video_extensions):
                     self.handle_video_file(dirpath, filename)
-                #    print(f"{dirpath} : {filename}")
-                #    if dirpath not in video_files.keys():
-                #        video_files[dirpath] = []
 
-                #    file_path = Path(dirpath) / filename
-                #    file_info = {
-                #        'name': filename,
-                #        'size': os.path.getsize(file_path),
-                #        'creation_time': datetime.datetime.fromtimestamp(
-                #            os.path.getctime(file_path)
-                #        ),
-                #        'modification_time': datetime.datetime.fromtimestamp(
-                #            os.path.getmtime(file_path)
-                #        ),
-                #        'mime_type': mimetypes.guess_type(file_path)[0],
-                #    }
-                #    video_files[dirpath].append(file_info)
-                pass
+        # Clean up database entries for files that no longer exist
+        self.db.end_of_scan()
+        logger.info("Scan completed successfully")
 
         return True
