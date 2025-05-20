@@ -125,25 +125,70 @@ class FosseData:
             '''
         )
 
-        # Create indexes for efficient searching
+        # Create indexes for efficient searching - one statement per execute call
         cursor.execute(
             '''
-            CREATE INDEX IF NOT EXISTS idx_file_path ON videos(file_path);
-            -- Index for last_used timestamp searches
-            CREATE INDEX IF NOT EXISTS idx_videos_last_used ON videos(last_used);
+            CREATE INDEX IF NOT EXISTS idx_file_path ON videos(file_path)
+            '''
+        )
 
-            -- Indexes for common metadata searches
-            CREATE INDEX IF NOT EXISTS idx_videos_format ON videos(video_format);
-            CREATE INDEX IF NOT EXISTS idx_videos_duration ON videos(duration_seconds);
-            CREATE INDEX IF NOT EXISTS idx_videos_resolution ON videos(width, height);
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_last_used ON videos(last_used)
+            '''
+        )
 
-            -- Indexes for new metadata fields
-            CREATE INDEX IF NOT EXISTS idx_videos_genre ON videos(genre_id);
-            CREATE INDEX IF NOT EXISTS idx_videos_subgenre ON videos(subgenre_id);
-            CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform_id);
-            CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title_id);
-            CREATE INDEX IF NOT EXISTS idx_videos_recording_date ON videos(recording_date);
-            CREATE INDEX IF NOT EXISTS idx_videos_influence ON videos(under_influence);
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_format ON videos(video_format)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_duration ON videos(duration_seconds)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_resolution ON videos(width, height)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_genre ON videos(genre_id)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_subgenre ON videos(subgenre_id)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform_id)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title_id)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_recording_date ON videos(recording_date)
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE INDEX IF NOT EXISTS idx_videos_influence ON videos(under_influence)
             '''
         )
 
@@ -309,7 +354,7 @@ class FosseData:
         cursor.execute("CREATE TEMPORARY TABLE temp_existing_notebooks (path TEXT PRIMARY KEY)")
 
         # Begin transaction
-        conn.execute("BEGIN TRANSACTION")
+        self._con.execute("BEGIN TRANSACTION")
 
     def end_of_scan(self):
         """
