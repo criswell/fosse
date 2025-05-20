@@ -433,8 +433,6 @@ class FosseData:
                 under_influence, video_id))
 
         self._con.commit()
-
-    def get_combined_config_for_file(self, file_path):
         """
         Calculates the combined configuration for a file by merging
         all applicable configs from parent directories.
@@ -504,8 +502,11 @@ class FosseData:
         parent_paths = []
 
         # Generate all possible parent directories
-        while dir_path:
+        # Keep going until dir_path is empty string or unchanged (at root)
+        prev_dir_path = None
+        while dir_path and dir_path != prev_dir_path:
             parent_paths.append(dir_path)
+            prev_dir_path = dir_path
             dir_path = os.path.dirname(dir_path)
 
         # Add root directory if needed

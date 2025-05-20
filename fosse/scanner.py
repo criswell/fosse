@@ -82,15 +82,12 @@ class Scanner:
 
             # Get video metadata
             metadata = self.extract_video_metadata(full_path)
-            print("BACK FROM METADATA")
 
             # Get combined configuration for this file
             config_data = self.db.get_combined_config_for_file(full_path)
-            print("BACK FROM CONFIG_DATA")
 
             # Extract recording date from filename if possible
             recording_date = self.extract_recording_date(filename, dirpath)
-            print("BACK FROM RECORDING_DATE")
 
             # Combine all metadata
             combined_metadata = {
@@ -103,7 +100,6 @@ class Scanner:
 
             # Insert or update the video in the database
             self.db.insert_video(full_path, combined_metadata)
-            print("BACK FROM INSERT")
 
             logger.debug(f"Added/updated video: {filename}")
 
