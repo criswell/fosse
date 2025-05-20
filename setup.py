@@ -16,6 +16,7 @@ setup(
         'click',
         'pyyaml',
         'loguru',
+        'pymediainfo',
     ],
     entry_points={
         'console_scripts': [

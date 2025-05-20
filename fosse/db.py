@@ -150,7 +150,75 @@ class FosseData:
         self._con.commit()
 
     def insert_video(self, file_path, metadata):
-        pass
+        """
+        Inserts or updates a video in the database.
+
+        Args:
+            file_path (str): The path to the video file.
+            metadata (dict): The metadata for the video.
+        """
+        # Extract normalized fields
+        genre_name = metadata.get('genre')
+        subgenre_name = metadata.get('subgenre')
+        platform_name = metadata.get('platform')
+        title_name = metadata.get('title')
+        under_influence = metadata.get('under_influence', False)
+        recording_date = metadata.get('recording_date')
+        source_notebooks = metadata.get('source_notebooks', [])
+
+        # Get or create IDs for normalized fields
+        genre_id = self.get_or_create_genre(genre_name)
+        platform_id = self.get_or_create_platform(platform_name)
+        title_id = self.get_or_create_title(title_name, platform_id)
+        subgenre_id = self.get_or_create_subgenre(subgenre_name, genre_id)
+
+        # Serialize the full metadata for storage
+        serialized_metadata = json.dumps(metadata)
+
+        # Serialize source notebooks
+        serialized_notebooks = json.dumps(source_notebooks)
+
+        cursor = self._con.cursor()
+        cursor.execute(
+            """
+            INSERT INTO videos (
+                file_path, file_data, duration_seconds, width, height,
+                video_format, codec, frame_rate, file_size_bytes,
+                genre_id, subgenre_id, platform_id, title_id,
+                recording_date, under_influence, source_notebooks
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(file_path) DO UPDATE SET
+                file_data = excluded.file_data,
+                duration_seconds = excluded.duration_seconds,
+                width = excluded.width,
+                height = excluded.height,
+                video_format = excluded.video_format,
+                codec = excluded.codec,
+                frame_rate = excluded.frame_rate,
+                file_size_bytes = excluded.file_size_bytes,
+                genre_id = excluded.genre_id,
+                subgenre_id = excluded.subgenre_id,
+                platform_id = excluded.platform_id,
+                title_id = excluded.title_id,
+                recording_date = excluded.recording_date,
+                under_influence = excluded.under_influence,
+                source_notebooks = excluded.source_notebooks,
+                last_modified = CURRENT_TIMESTAMP
+            """,
+            (
+                file_path, serialized_metadata,
+                metadata.get('duration_seconds', 0),
+                metadata.get('width', 0),
+                metadata.get('height', 0),
+                metadata.get('video_format', 'unknown'),
+                metadata.get('codec', 'unknown'),
+                metadata.get('frame_rate', 0.0),
+                metadata.get('file_size_bytes', 0),
+                genre_id, subgenre_id, platform_id, title_id,
+                recording_date, under_influence, serialized_notebooks
+            )
+        )
+        self._con.commit()
 
     def insert_notebook(self, config_path, notebook):
         """
@@ -395,5 +463,81 @@ class FosseData:
             return result[0]
 
         cursor.execute("INSERT INTO genres (name) VALUES (?)", (genre_name,))
+        self._con.commit()
+        return cursor.lastrowid
+
+def get_or_create_platform(self, platform_name):
+    """
+    Gets the ID for a platform, creating it if it doesn't exist.
+
+    Args:
+        platform_name (str): The name of the platform
+
+    Returns:
+        int: The ID of the platform
+    """
+    if not platform_name:
+        return None
+
+    cursor = self._con.cursor()
+    cursor.execute("SELECT id FROM platforms WHERE name = ?", (platform_name,))
+    result = cursor.fetchone()
+
+    if result:
+        return result[0]
+
+    cursor.execute("INSERT INTO platforms (name) VALUES (?)", (platform_name,))
+    self._con.commit()
+    return cursor.lastrowid
+
+    def get_or_create_title(self, title_name, platform_id):
+        """
+        Gets the ID for a title, creating it if it doesn't exist.
+
+        Args:
+            title_name (str): The name of the title
+            platform_id (int): The ID of the platform
+
+        Returns:
+            int: The ID of the title
+        """
+        if not title_name:
+            return None
+
+        cursor = self._con.cursor()
+        cursor.execute("SELECT id FROM titles WHERE name = ?", (title_name,))
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
+
+        cursor.execute("INSERT INTO titles (name, platform_id) VALUES (?, ?)",
+                    (title_name, platform_id))
+        self._con.commit()
+        return cursor.lastrowid
+
+    def get_or_create_subgenre(self, subgenre_name, genre_id):
+        """
+        Gets the ID for a subgenre, creating it if it doesn't exist.
+
+        Args:
+            subgenre_name (str): The name of the subgenre
+            genre_id (int): The ID of the parent genre
+
+        Returns:
+            int: The ID of the subgenre
+        """
+        if not subgenre_name:
+            return None
+
+        cursor = self._con.cursor()
+        cursor.execute("SELECT id FROM subgenres WHERE name = ?", (subgenre_name,))
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
+
+        cursor.execute("INSERT INTO subgenres (name, genre_id) VALUES (?, ?)",
+                    (subgenre_name, genre_id))
         self._con.commit()
         return cursor.lastrowid

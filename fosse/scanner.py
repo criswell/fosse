@@ -105,7 +105,7 @@ class Scanner:
 
     def extract_video_metadata(self, file_path):
         """
-        Extracts metadata from a video file.
+        Extracts metadata from a video file using pymediainfo.
 
         Args:
             file_path (str): Path to the video file.
@@ -113,11 +113,50 @@ class Scanner:
         Returns:
             dict: Metadata extracted from the video file.
         """
-        # TODO: Implement video metadata extraction
-        # This would use a library like ffmpeg-python, moviepy, or opencv
-        # to extract information like duration, resolution, codec, etc.
+        try:
+            from pymediainfo import MediaInfo
 
-        # For now, return placeholder metadata
+            media_info = MediaInfo.parse(file_path)
+
+            # Get the video track (usually the first video track)
+            video_track = None
+            for track in media_info.tracks:
+                if track.track_type == 'Video':
+                    video_track = track
+                    break
+
+            if not video_track:
+                logger.warning(f"No video track found in {file_path}")
+                return self._get_default_metadata()
+
+            # Extract relevant metadata
+            metadata = {
+                'duration_seconds': int(float(video_track.duration) / 1000) if hasattr(video_track, 'duration') else 0,
+                'width': int(video_track.width) if hasattr(video_track, 'width') else 0,
+                'height': int(video_track.height) if hasattr(video_track, 'height') else 0,
+                'video_format': video_track.format if hasattr(video_track, 'format') else 'unknown',
+                'codec': video_track.codec_id if hasattr(video_track, 'codec_id') else 'unknown',
+                'frame_rate': float(video_track.frame_rate) if hasattr(video_track, 'frame_rate') else 0.0,
+                'bit_rate': int(video_track.bit_rate) if hasattr(video_track, 'bit_rate') else 0,
+                'aspect_ratio': video_track.display_aspect_ratio if hasattr(video_track, 'display_aspect_ratio') else None,
+            }
+
+            return metadata
+
+        except ImportError:
+            logger.warning("pymediainfo not installed. Using default metadata values.")
+            return self._get_default_metadata()
+        except Exception as e:
+            logger.error(f"Error extracting metadata from {file_path}: {str(e)}")
+            return self._get_default_metadata()
+
+    def _get_default_metadata(self):
+        """
+        Returns default metadata when extraction fails.
+
+        Returns:
+            dict: Default metadata values.
+        """
         return {
             'duration_seconds': 0,
             'width': 0,
@@ -125,6 +164,8 @@ class Scanner:
             'video_format': 'unknown',
             'codec': 'unknown',
             'frame_rate': 0.0,
+            'bit_rate': 0,
+            'aspect_ratio': None,
         }
 
     def extract_recording_date(self, filename, dirpath):
@@ -138,14 +179,51 @@ class Scanner:
         Returns:
             str: ISO formatted date string or None if not extractable.
         """
-        # Get applicable notebook for this directory
-        config = self.db.get_combined_config_for_file(os.path.join(dirpath, filename))
+        import re
+        from datetime import datetime
 
-        # TODO: Implement date extraction from filename using notebook decoding rules
-        # This would use the regexp and group information from the notebook
+        # Get combined config for this file path
+        file_path = os.path.join(dirpath, filename)
+        combined_config = self.db.get_combined_config_for_file(file_path)
 
-        # For now, return None
-        return None
+        # Check if we have decoding information
+        if 'decoding' not in combined_config:
+            return None
+
+        decoding = combined_config.get('decoding', {})
+        regexp = decoding.get('regexp')
+        date_group = decoding.get('date-group')
+        time_group = decoding.get('time-group')
+
+        if not regexp or not date_group:
+            return None
+
+        try:
+            # Apply the regular expression to the filename
+            match = re.match(regexp, filename)
+            if not match:
+                return None
+
+            # Extract date and time if available
+            date_str = match.group(date_group)
+            time_str = match.group(time_group) if time_group and time_group <= len(match.groups()) else "00:00:00"
+
+            # Parse date format - this would need to be adjusted based on your date format
+            # Assuming format is YYYY-MM-DD or similar
+            date_format = combined_config.get('date_format', '%Y-%m-%d')
+            time_format = combined_config.get('time_format', '%H:%M:%S')
+
+            # Try to parse the date
+            try:
+                recording_date = datetime.strptime(f"{date_str} {time_str}", f"{date_format} {time_format}")
+                return recording_date.isoformat()
+            except ValueError:
+                logger.warning(f"Could not parse date from filename: {filename}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error extracting date from {filename}: {str(e)}")
+            return None
 
     def scan(self):
         """
