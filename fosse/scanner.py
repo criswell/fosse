@@ -20,11 +20,31 @@ class Scanner:
         Args:
             dirpath (str): The path of the directory being scanned.
         """
-        notebook = Notebook(
-            self.config, f"{dirpath}/{self.config['fosse_file']}"
-        )
+        notebook = Notebook(self.config, f"{dirpath}/{self.config['fosse_file']}")
         logger.debug(f"Found Notebook: {notebook.name()}")
+
+        # Check if this is a new or updated notebook
+        cursor = self.db._con.cursor()
+        cursor.execute(
+            "SELECT config_data FROM notebooks WHERE config_path = ?",
+            (dirpath,)
+        )
+        existing_notebook = cursor.fetchone()
+
+        is_updated = False
+        if existing_notebook:
+            old_notebook = pickle.loads(existing_notebook[0])
+            # Compare old and new notebook data to see if it changed
+            if old_notebook.raw() != notebook.raw():
+                is_updated = True
+
+        # Insert or update the notebook
         self.db.insert_notebook(dirpath, notebook)
+
+        # If the notebook was updated, update all affected videos
+        if is_updated:
+            logger.info(f"Config updated at {dirpath}, updating affected videos...")
+            self.db.update_videos_for_config(dirpath)
 
     def handle_video_file(self, dirpath, filename):
         """
@@ -74,7 +94,7 @@ class Scanner:
             if fosse_file in filenames:
                 self.handle_fosse_yml(dirpath)
             for filename in filenames:
-                Check if file has a video extension
+                # Check if file has a video extension
                 if filename.lower().endswith(video_extensions):
                     self.handle_video_file(dirpath, filename)
                 #    print(f"{dirpath} : {filename}")

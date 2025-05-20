@@ -26,25 +26,66 @@ class FosseData:
         # Create the Notebook table if it doesn't exist
         cursor.execute(
             '''
-        CREATE TABLE IF NOT EXISTS notebooks (
-            id INTEGER PRIMARY KEY,
-            config_path TEXT NOT NULL UNIQUE,
-            config_data TEXT NOT NULL,
-            last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        '''
+            CREATE TABLE IF NOT EXISTS notebooks (
+                id INTEGER PRIMARY KEY,
+                config_path TEXT NOT NULL UNIQUE,
+                config_data TEXT NOT NULL,
+                last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            '''
         )
 
         cursor.execute(
             '''
-        CREATE INDEX IF NOT EXISTS idx_config_path ON notebooks(config_path)
-        '''
+            CREATE INDEX IF NOT EXISTS idx_config_path ON notebooks(config_path)
+            '''
         )
 
         cursor.execute(
             '''
-        CREATE INDEX IF NOT EXISTS idx_last_modified ON notebooks(last_modified)
-        '''
+            CREATE INDEX IF NOT EXISTS idx_last_modified ON notebooks(last_modified)
+            '''
+        )
+
+        # Create normalized tables for shared metadata
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS genres (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE
+            )
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS subgenres (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                genre_id INTEGER,
+                FOREIGN KEY (genre_id) REFERENCES genres(id)
+            )
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS platforms (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE
+            )
+            '''
+        )
+
+        cursor.execute(
+            '''
+            CREATE TABLE IF NOT EXISTS titles (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                platform_id INTEGER,
+                FOREIGN KEY (platform_id) REFERENCES platforms(id)
+            )
+            '''
         )
 
         # Create the Video table if it doesn't exist
@@ -65,10 +106,26 @@ class FosseData:
                 codec TEXT,
                 frame_rate REAL,
                 file_size_bytes INTEGER,
-        )
-        '''
+
+                -- New metadata fields
+                genre_id INTEGER,
+                subgenre_id INTEGER,
+                platform_id INTEGER,
+                title_id INTEGER,
+                recording_date TEXT,
+                under_influence BOOLEAN DEFAULT 0,
+                source_notebooks TEXT,
+
+                -- Foreign key constraints
+                FOREIGN KEY (genre_id) REFERENCES genres(id),
+                FOREIGN KEY (subgenre_id) REFERENCES subgenres(id),
+                FOREIGN KEY (platform_id) REFERENCES platforms(id),
+                FOREIGN KEY (title_id) REFERENCES titles(id)
+            )
+            '''
         )
 
+        # Create indexes for efficient searching
         cursor.execute(
             '''
             CREATE INDEX IF NOT EXISTS idx_file_path ON videos(file_path);
@@ -79,10 +136,21 @@ class FosseData:
             CREATE INDEX IF NOT EXISTS idx_videos_format ON videos(video_format);
             CREATE INDEX IF NOT EXISTS idx_videos_duration ON videos(duration_seconds);
             CREATE INDEX IF NOT EXISTS idx_videos_resolution ON videos(width, height);
+
+            -- Indexes for new metadata fields
+            CREATE INDEX IF NOT EXISTS idx_videos_genre ON videos(genre_id);
+            CREATE INDEX IF NOT EXISTS idx_videos_subgenre ON videos(subgenre_id);
+            CREATE INDEX IF NOT EXISTS idx_videos_platform ON videos(platform_id);
+            CREATE INDEX IF NOT EXISTS idx_videos_title ON videos(title_id);
+            CREATE INDEX IF NOT EXISTS idx_videos_recording_date ON videos(recording_date);
+            CREATE INDEX IF NOT EXISTS idx_videos_influence ON videos(under_influence);
             '''
         )
 
         self._con.commit()
+
+    def insert_video(self, file_path, metadata):
+        pass
 
     def insert_notebook(self, config_path, notebook):
         """
@@ -102,6 +170,13 @@ class FosseData:
                 last_modified = CURRENT_TIMESTAMP;
             """,
             (config_path, config_data),
+        )
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO temp_existing_notebooks (path)
+            VALUES (?);
+            """,
+            (config_path,),
         )
         self._con.commit()
 
@@ -167,3 +242,158 @@ class FosseData:
 
         # Begin transaction
         conn.execute("BEGIN TRANSACTION")
+
+    def end_of_scan(self):
+        """
+        To be called at the end of a scan. Will purge entries that no longer
+        exist in the filesystem.
+        """
+        cursor = self._con.cursor()
+
+        # Delete videos not in temp_existing_files
+        cursor.execute(
+            """
+            DELETE FROM videos
+            WHERE file_path NOT IN (SELECT path FROM temp_existing_files)
+            """
+        )
+
+        # Delete notebooks not in temp_existing_notebooks
+        cursor.execute(
+            """
+            DELETE FROM notebooks
+            WHERE config_path NOT IN (SELECT path FROM temp_existing_notebooks)
+            """
+        )
+
+        # Commit transaction
+        self._con.commit()
+
+    def update_videos_for_config(self, config_path):
+        """
+        Updates all videos affected by changes to a config file.
+        """
+        cursor = self._con.cursor()
+
+        # Find all video files in this directory and subdirectories
+        like_pattern = f"{config_path}/%"
+
+        # Get all videos in this directory and subdirectories
+        cursor.execute("""
+            SELECT id, file_path FROM videos
+            WHERE file_path LIKE ? OR file_path = ?
+        """, (like_pattern, config_path))
+
+        affected_videos = cursor.fetchall()
+
+        for video_id, file_path in affected_videos:
+            # Get the combined configuration for this video
+            combined_config = self.get_combined_config_for_file(file_path)
+
+            # Extract metadata fields
+            genre_name = combined_config.get('genre')
+            subgenre_name = combined_config.get('subgenre')
+            platform_name = combined_config.get('platform')
+            title_name = combined_config.get('title')
+            under_influence = combined_config.get('under_influence', False)
+
+            # Get or create IDs for normalized fields
+            genre_id = self.get_or_create_genre(genre_name)
+            platform_id = self.get_or_create_platform(platform_name)
+            title_id = self.get_or_create_title(title_name, platform_id)
+            subgenre_id = self.get_or_create_subgenre(subgenre_name, genre_id)
+
+            # Update the video record with the new configuration
+            serialized_config = json.dumps(combined_config)
+            cursor.execute("""
+                UPDATE videos
+                SET file_data = ?,
+                    genre_id = ?,
+                    subgenre_id = ?,
+                    platform_id = ?,
+                    title_id = ?,
+                    under_influence = ?,
+                    last_modified = CURRENT_TIMESTAMP
+                WHERE id = ?
+            """, (serialized_config, genre_id, subgenre_id, platform_id, title_id,
+                under_influence, video_id))
+
+        self._con.commit()
+
+    def get_combined_config_for_file(self, file_path):
+        """
+        Calculates the combined configuration for a file by merging
+        all applicable configs from parent directories.
+
+        Args:
+            file_path (str): Path to the video file
+
+        Returns:
+            dict: The combined configuration
+        """
+        # Get directory containing the file
+        dir_path = os.path.dirname(file_path)
+        parent_paths = []
+
+        # Generate all possible parent directories
+        while dir_path:
+            parent_paths.append(dir_path)
+            dir_path = os.path.dirname(dir_path)
+
+        # Add root directory if needed
+        if '/' not in parent_paths:
+            parent_paths.append('/')
+
+        cursor = self._con.cursor()
+
+        # SQL query to find ALL configs that apply (not just most specific)
+        placeholders = ','.join(['?'] * len(parent_paths))
+        query = f"""
+            SELECT config_path, config_data FROM notebooks
+            WHERE config_path IN ({placeholders})
+            ORDER BY LENGTH(config_path) DESC
+        """
+
+        cursor.execute(query, parent_paths)
+        results = cursor.fetchall()
+
+        # Track which notebooks contributed to this config
+        source_notebooks = []
+
+        # Merge configurations, with deeper directories taking precedence
+        merged_config = {}
+        for path, config_data in results:
+            config = pickle.loads(config_data).raw()
+            if config:
+                # Update the merged config, overriding any existing keys
+                merged_config.update(config)
+                source_notebooks.append(path)
+
+        # Add the source notebooks to the config
+        merged_config['source_notebooks'] = source_notebooks
+
+        return merged_config
+
+    def get_or_create_genre(self, genre_name):
+        """
+        Gets the ID for a genre, creating it if it doesn't exist.
+
+        Args:
+            genre_name (str): The name of the genre
+
+        Returns:
+            int: The ID of the genre
+        """
+        if not genre_name:
+            return None
+
+        cursor = self._con.cursor()
+        cursor.execute("SELECT id FROM genres WHERE name = ?", (genre_name,))
+        result = cursor.fetchone()
+
+        if result:
+            return result[0]
+
+        cursor.execute("INSERT INTO genres (name) VALUES (?)", (genre_name,))
+        self._con.commit()
+        return cursor.lastrowid
