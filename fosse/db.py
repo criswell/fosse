@@ -3,6 +3,7 @@ import os
 import datetime
 import sqlite3
 import pickle
+import json
 
 
 class FosseData:
@@ -293,7 +294,7 @@ class FosseData:
         )
         self._con.commit()
 
-    def get_applicable_notebook(file_path):
+    def get_applicable_notebook(self, file_path):
         """
         Retrieves the most specific Notebook for a given file path.
         Args:
@@ -487,6 +488,64 @@ class FosseData:
 
         return merged_config
 
+    def get_combined_config_for_file(self, file_path):
+        """
+        Calculates the combined configuration for a file by merging
+        all applicable configs from parent directories.
+
+        Args:
+            file_path (str): Path to the video file
+
+        Returns:
+            dict: The combined configuration
+        """
+        # Get directory containing the file
+        dir_path = os.path.dirname(file_path)
+        parent_paths = []
+
+        # Generate all possible parent directories
+        while dir_path:
+            parent_paths.append(dir_path)
+            dir_path = os.path.dirname(dir_path)
+
+        # Add root directory if needed
+        if '/' not in parent_paths:
+            parent_paths.append('/')
+
+        cursor = self._con.cursor()
+
+        # Handle the case when there are no parent paths
+        if not parent_paths:
+            return {'source_notebooks': []}
+
+        # SQL query to find ALL configs that apply (not just most specific)
+        placeholders = ','.join(['?'] * len(parent_paths))
+        query = f"""
+        SELECT config_path, config_data FROM notebooks
+        WHERE config_path IN ({placeholders})
+        ORDER BY LENGTH(config_path) DESC
+        """
+
+        cursor.execute(query, parent_paths)
+        results = cursor.fetchall()
+
+        # Track which notebooks contributed to this config
+        source_notebooks = []
+
+        # Merge configurations, with deeper directories taking precedence
+        merged_config = {}
+        for path, config_data in results:
+            config = pickle.loads(config_data).raw()
+            if config:
+                # Update the merged config, overriding any existing keys
+                merged_config.update(config)
+                source_notebooks.append(path)
+
+        # Add the source notebooks to the config
+        merged_config['source_notebooks'] = source_notebooks
+
+        return merged_config
+
     def get_or_create_genre(self, genre_name):
         """
         Gets the ID for a genre, creating it if it doesn't exist.
@@ -535,31 +594,31 @@ class FosseData:
         self._con.commit()
         return cursor.lastrowid
 
-        def get_or_create_title(self, title_name, platform_id):
-            """
-            Gets the ID for a title, creating it if it doesn't exist.
+    def get_or_create_title(self, title_name, platform_id):
+        """
+        Gets the ID for a title, creating it if it doesn't exist.
 
-            Args:
-                title_name (str): The name of the title
-                platform_id (int): The ID of the platform
+        Args:
+            title_name (str): The name of the title
+            platform_id (int): The ID of the platform
 
-            Returns:
-                int: The ID of the title
-            """
-            if not title_name:
-                return None
+        Returns:
+            int: The ID of the title
+        """
+        if not title_name:
+            return None
 
-            cursor = self._con.cursor()
-            cursor.execute("SELECT id FROM titles WHERE name = ?", (title_name,))
-            result = cursor.fetchone()
+        cursor = self._con.cursor()
+        cursor.execute("SELECT id FROM titles WHERE name = ?", (title_name,))
+        result = cursor.fetchone()
 
-            if result:
-                return result[0]
+        if result:
+            return result[0]
 
-            cursor.execute("INSERT INTO titles (name, platform_id) VALUES (?, ?)",
-                        (title_name, platform_id))
-            self._con.commit()
-            return cursor.lastrowid
+        cursor.execute("INSERT INTO titles (name, platform_id) VALUES (?, ?)",
+                    (title_name, platform_id))
+        self._con.commit()
+        return cursor.lastrowid
 
     def get_or_create_subgenre(self, subgenre_name, genre_id):
         """

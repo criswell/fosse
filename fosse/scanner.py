@@ -82,12 +82,15 @@ class Scanner:
 
             # Get video metadata
             metadata = self.extract_video_metadata(full_path)
+            print("BACK FROM METADATA")
 
             # Get combined configuration for this file
             config_data = self.db.get_combined_config_for_file(full_path)
+            print("BACK FROM CONFIG_DATA")
 
             # Extract recording date from filename if possible
             recording_date = self.extract_recording_date(filename, dirpath)
+            print("BACK FROM RECORDING_DATE")
 
             # Combine all metadata
             combined_metadata = {
@@ -100,6 +103,7 @@ class Scanner:
 
             # Insert or update the video in the database
             self.db.insert_video(full_path, combined_metadata)
+            print("BACK FROM INSERT")
 
             logger.debug(f"Added/updated video: {filename}")
 
@@ -116,6 +120,8 @@ class Scanner:
         try:
             from pymediainfo import MediaInfo
 
+            logger.debug(f"Extracting metadata for: {file_path}")
+
             media_info = MediaInfo.parse(file_path)
 
             # Get the video track (usually the first video track)
@@ -128,17 +134,48 @@ class Scanner:
             if not video_track:
                 logger.warning(f"No video track found in {file_path}")
                 return self._get_default_metadata()
+            else:
+                # Log all available attributes for debugging
+                logger.debug(f"Available video track attributes: {dir(video_track)}")
+                for attr in dir(video_track):
+                    if not attr.startswith('_'):  # Skip private attributes
+                        try:
+                            value = getattr(video_track, attr)
+                            if not callable(value):  # Skip methods
+                                logger.debug(f"  {attr}: {value}")
+                        except Exception:
+                            pass
 
-            # Extract relevant metadata
+
+            # Helper function to safely get numeric attributes
+            def safe_int(obj, attr, default=0):
+                if hasattr(obj, attr) and getattr(obj, attr) is not None:
+                    try:
+                        return int(float(getattr(obj, attr)))
+                    except (ValueError, TypeError):
+                        logger.debug(f"Could not convert {attr} to int: {getattr(obj, attr)}")
+                        return default
+                return default
+
+            def safe_float(obj, attr, default=0.0):
+                if hasattr(obj, attr) and getattr(obj, attr) is not None:
+                    try:
+                        return float(getattr(obj, attr))
+                    except (ValueError, TypeError):
+                        logger.debug(f"Could not convert {attr} to float: {getattr(obj, attr)}")
+                        return default
+                return default
+
+            # Extract relevant metadata with safer conversions
             metadata = {
-                'duration_seconds': int(float(video_track.duration) / 1000) if hasattr(video_track, 'duration') else 0,
-                'width': int(video_track.width) if hasattr(video_track, 'width') else 0,
-                'height': int(video_track.height) if hasattr(video_track, 'height') else 0,
-                'video_format': video_track.format if hasattr(video_track, 'format') else 'unknown',
-                'codec': video_track.codec_id if hasattr(video_track, 'codec_id') else 'unknown',
-                'frame_rate': float(video_track.frame_rate) if hasattr(video_track, 'frame_rate') else 0.0,
-                'bit_rate': int(video_track.bit_rate) if hasattr(video_track, 'bit_rate') else 0,
-                'aspect_ratio': video_track.display_aspect_ratio if hasattr(video_track, 'display_aspect_ratio') else None,
+                'duration_seconds': safe_int(video_track, 'duration', 0) // 1000,  # Convert ms to seconds
+                'width': safe_int(video_track, 'width', 0),
+                'height': safe_int(video_track, 'height', 0),
+                'video_format': getattr(video_track, 'format', 'unknown') if hasattr(video_track, 'format') else 'unknown',
+                'codec': getattr(video_track, 'codec_id', 'unknown') if hasattr(video_track, 'codec_id') else 'unknown',
+                'frame_rate': safe_float(video_track, 'frame_rate', 0.0),
+                'bit_rate': safe_int(video_track, 'bit_rate', 0),
+                'aspect_ratio': getattr(video_track, 'display_aspect_ratio', None) if hasattr(video_track, 'display_aspect_ratio') else None,
             }
 
             return metadata
@@ -148,6 +185,7 @@ class Scanner:
             return self._get_default_metadata()
         except Exception as e:
             logger.error(f"Error extracting metadata from {file_path}: {str(e)}")
+            logger.debug(f"Exception details:", exc_info=True)  # Add full traceback for debugging
             return self._get_default_metadata()
 
     def _get_default_metadata(self):
@@ -171,13 +209,6 @@ class Scanner:
     def extract_recording_date(self, filename, dirpath):
         """
         Attempts to extract recording date from filename using notebook decoding rules.
-
-        Args:
-            filename (str): The video filename.
-            dirpath (str): The directory path containing the video.
-
-        Returns:
-            str: ISO formatted date string or None if not extractable.
         """
         import re
         from datetime import datetime
@@ -187,7 +218,7 @@ class Scanner:
         combined_config = self.db.get_combined_config_for_file(file_path)
 
         # Check if we have decoding information
-        if 'decoding' not in combined_config:
+        if not combined_config or 'decoding' not in combined_config:
             return None
 
         decoding = combined_config.get('decoding', {})
