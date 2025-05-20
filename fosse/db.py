@@ -466,55 +466,55 @@ class FosseData:
         self._con.commit()
         return cursor.lastrowid
 
-def get_or_create_platform(self, platform_name):
-    """
-    Gets the ID for a platform, creating it if it doesn't exist.
-
-    Args:
-        platform_name (str): The name of the platform
-
-    Returns:
-        int: The ID of the platform
-    """
-    if not platform_name:
-        return None
-
-    cursor = self._con.cursor()
-    cursor.execute("SELECT id FROM platforms WHERE name = ?", (platform_name,))
-    result = cursor.fetchone()
-
-    if result:
-        return result[0]
-
-    cursor.execute("INSERT INTO platforms (name) VALUES (?)", (platform_name,))
-    self._con.commit()
-    return cursor.lastrowid
-
-    def get_or_create_title(self, title_name, platform_id):
+    def get_or_create_platform(self, platform_name):
         """
-        Gets the ID for a title, creating it if it doesn't exist.
+        Gets the ID for a platform, creating it if it doesn't exist.
 
         Args:
-            title_name (str): The name of the title
-            platform_id (int): The ID of the platform
+            platform_name (str): The name of the platform
 
         Returns:
-            int: The ID of the title
+            int: The ID of the platform
         """
-        if not title_name:
+        if not platform_name:
             return None
 
         cursor = self._con.cursor()
-        cursor.execute("SELECT id FROM titles WHERE name = ?", (title_name,))
+        cursor.execute("SELECT id FROM platforms WHERE name = ?", (platform_name,))
         result = cursor.fetchone()
 
         if result:
             return result[0]
 
-        cursor.execute("INSERT INTO titles (name, platform_id) VALUES (?, ?)",
-                    (title_name, platform_id))
+        cursor.execute("INSERT INTO platforms (name) VALUES (?)", (platform_name,))
         self._con.commit()
         return cursor.lastrowid
+
+        def get_or_create_title(self, title_name, platform_id):
+            """
+            Gets the ID for a title, creating it if it doesn't exist.
+
+            Args:
+                title_name (str): The name of the title
+                platform_id (int): The ID of the platform
+
+            Returns:
+                int: The ID of the title
+            """
+            if not title_name:
+                return None
+
+            cursor = self._con.cursor()
+            cursor.execute("SELECT id FROM titles WHERE name = ?", (title_name,))
+            result = cursor.fetchone()
+
+            if result:
+                return result[0]
+
+            cursor.execute("INSERT INTO titles (name, platform_id) VALUES (?, ?)",
+                        (title_name, platform_id))
+            self._con.commit()
+            return cursor.lastrowid
 
     def get_or_create_subgenre(self, subgenre_name, genre_id):
         """
